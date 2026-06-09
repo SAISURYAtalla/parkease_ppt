@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ParkEase — AI Floor & Zone Guidance for Indian Basements</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#0A0C0D;
+    --ink-2:#0F1417;
+    --panel:#141A1F;
+    --panel-2:#1B232A;
+    --line:rgba(255,255,255,.09);
+    --line-strong:rgba(255,255,255,.16);
+    --text:#EAEFF2;
+    --muted:#8B98A1;
+    --muted-2:#5E6B73;
+    --amber:#FFC857;       /* sodium / wayfinding glow */
+    --amber-deep:#F4A93C;
+    --go:#4ADE80;          /* vacant / go */
+    --go-dim:#1f6b42;
+    --red:#FF6B6B;
+    --maxw:1180px;
+    --display:"Bricolage Grotesque",serif;
+    --body:"Hanken Grotesk",sans-serif;
+    --mono:"Space Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:var(--body);
+    font-size:17px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  /* grain + concrete atmosphere */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(255,200,87,.10), transparent 60%),
+      radial-gradient(900px 600px at -10% 110%, rgba(74,222,128,.06), transparent 55%),
+      linear-gradient(180deg,#0A0C0D, #0A0C0D);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{position:relative;z-index:1}
+
+  /* ---------- side rail nav ---------- */
+  .rail{
+    position:fixed;top:0;left:0;height:100vh;width:64px;z-index:50;
+    display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+    padding:22px 0;border-right:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(10,12,13,.7),rgba(10,12,13,.3));
+    backdrop-filter:blur(6px);
+  }
+  .rail .mark{font-family:var(--mono);font-weight:700;font-size:13px;color:var(--amber);writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:2px}
+  .rail .dots{display:flex;flex-direction:column;gap:14px}
+  .rail .dots a{width:9px;height:9px;border-radius:2px;border:1px solid var(--line-strong);background:transparent;transition:.25s}
+  .rail .dots a.on{background:var(--amber);border-color:var(--amber);box-shadow:0 0 12px rgba(255,200,87,.7)}
+  .rail .lv{font-family:var(--mono);font-size:11px;color:var(--muted-2);writing-mode:vertical-rl}
+
+  /* ---------- section frame ---------- */
+  section{
+    min-height:100vh;padding:96px 7vw 96px calc(64px + 7vw);
+    display:flex;flex-direction:column;justify-content:center;
+    border-bottom:1px solid var(--line);position:relative;
+    scroll-margin-top:0;
+  }
+  .kicker{
+    font-family:var(--mono);font-size:12.5px;letter-spacing:3px;text-transform:uppercase;
+    color:var(--amber);display:flex;align-items:center;gap:14px;margin-bottom:26px;
+  }
+  .kicker::before{content:"";width:34px;height:1px;background:var(--amber);display:inline-block}
+  .num{position:absolute;top:40px;right:7vw;font-family:var(--mono);font-size:13px;color:var(--muted-2)}
+  h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,5.6rem);line-height:.98;letter-spacing:-.02em}
+  h2{font-family:var(--display);font-weight:700;font-size:clamp(2rem,4.6vw,3.5rem);line-height:1.02;letter-spacing:-.015em;max-width:18ch}
+  h3{font-family:var(--display);font-weight:700;font-size:1.35rem;letter-spacing:-.01em;margin-bottom:8px}
+  .lead{font-size:clamp(1.05rem,1.7vw,1.4rem);color:var(--muted);max-width:62ch;margin-top:22px;line-height:1.5}
+  p.body{color:var(--muted);max-width:58ch}
+  .hl{color:var(--text)}
+  .amber{color:var(--amber)}
+  .go{color:var(--go)}
+  .reveal{opacity:0;transform:translateY(26px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+  .reveal.in{opacity:1;transform:none}
+  .reveal.d1{transition-delay:.08s}.reveal.d2{transition-delay:.16s}.reveal.d3{transition-delay:.24s}.reveal.d4{transition-delay:.32s}.reveal.d5{transition-delay:.4s}
+
+  /* ---------- LED entrance display ---------- */
+  .led{
+    border:1px solid var(--line-strong);border-radius:14px;
+    background:
+      radial-gradient(120% 140% at 50% 0%, rgba(255,200,87,.08), transparent 60%),
+      linear-gradient(180deg,#0c0f11,#070809);
+    padding:30px 38px;display:inline-flex;gap:42px;align-items:center;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.02), 0 30px 80px rgba(0,0,0,.55);
+    position:relative;overflow:hidden;
+  }
+  .led::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.25) 0 2px,transparent 2px 4px);opacity:.4;pointer-events:none}
+  .led .cell{display:flex;flex-direction:column;gap:4px;position:relative}
+  .led .cap{font-family:var(--mono);font-size:11px;letter-spacing:3px;color:var(--muted-2)}
+  .led .val{font-family:var(--mono);font-weight:700;font-size:clamp(2.4rem,5vw,3.4rem);color:var(--amber);text-shadow:0 0 18px rgba(255,200,87,.55);line-height:1}
+  .led .arrow{font-size:clamp(2rem,4vw,3rem);color:var(--go);text-shadow:0 0 16px rgba(74,222,128,.5)}
+  .led .div{width:1px;align-self:stretch;background:var(--line)}
+
+  /* ---------- generic grids / cards ---------- */
+  .grid{display:grid;gap:18px;margin-top:40px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .card{
+    border:1px solid var(--line);border-radius:14px;padding:24px;
+    background:linear-gradient(180deg,rgba(255,255,255,.025),rgba(255,255,255,0));
+    transition:.3s;
+  }
+  .card:hover{border-color:var(--line-strong);transform:translateY(-3px);background:linear-gradient(180deg,rgba(255,200,87,.05),rgba(255,255,255,0))}
+  .card .ic{font-family:var(--mono);color:var(--amber);font-size:13px;letter-spacing:2px;margin-bottom:14px}
+  .card p{color:var(--muted);font-size:15px}
+  .card.bad h3{color:var(--red)} .card.good h3{color:var(--go)}
+
+  /* flow steps */
+  .flow{display:flex;flex-direction:column;gap:0;margin-top:36px;max-width:780px}
+  .step{display:grid;grid-template-columns:54px 1fr;gap:20px;padding:16px 0;border-bottom:1px dashed var(--line);align-items:start}
+  .step .n{font-family:var(--mono);color:var(--amber);font-weight:700;font-size:14px;border:1px solid var(--line-strong);border-radius:8px;width:44px;height:44px;display:flex;align-items:center;justify-content:center}
+  .step h3{font-size:1.05rem;margin-bottom:2px}
+  .step p{color:var(--muted);font-size:14.5px}
+
+  /* stat row */
+  .stats{display:flex;flex-wrap:wrap;gap:48px;margin-top:36px}
+  .stat .big{font-family:var(--display);font-weight:800;font-size:clamp(2.4rem,5vw,3.6rem);color:var(--amber);line-height:1}
+  .stat .lab{color:var(--muted);font-size:14px;margin-top:6px;max-width:22ch}
+
+  /* tam concentric */
+  .tam{display:grid;grid-template-columns:1.1fr 1fr;gap:50px;align-items:center;margin-top:30px}
+  .rings{position:relative;aspect-ratio:1;max-width:420px;width:100%;margin:auto}
+  .ring{position:absolute;border-radius:50%;display:flex;align-items:flex-start;justify-content:center;border:1px solid var(--line-strong);font-family:var(--mono);font-size:12px;padding-top:14px;letter-spacing:1px}
+  .r1{inset:0;background:radial-gradient(circle,rgba(255,200,87,.04),transparent);color:var(--muted)}
+  .r2{inset:18%;background:rgba(255,200,87,.05);color:var(--muted)}
+  .r3{inset:38%;background:rgba(255,200,87,.14);border-color:var(--amber);color:var(--amber)}
+  .tam .it{margin:14px 0}
+  .tam .it b{font-family:var(--display);font-size:1.5rem;color:var(--text);display:block}
+  .tam .it span{color:var(--muted);font-size:14px}
+
+  table.cmp{width:100%;border-collapse:collapse;margin-top:34px;font-size:14.5px}
+  table.cmp th,table.cmp td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line)}
+  table.cmp th{font-family:var(--mono);font-size:11.5px;letter-spacing:2px;text-transform:uppercase;color:var(--muted-2);font-weight:400}
+  table.cmp tr td:first-child{font-weight:600}
+  table.cmp .us{background:linear-gradient(90deg,rgba(255,200,87,.10),transparent)}
+  table.cmp .us td:first-child{color:var(--amber)}
+  .chk{color:var(--go)} .x{color:var(--red)}
+
+  .sensor-img{width:100%;border-radius:14px;border:1px solid var(--line);margin-top:30px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+
+  .timeline{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:40px;border-top:1px solid var(--line-strong)}
+  .ph{padding:24px 22px 0 0;border-right:1px solid var(--line);position:relative}
+  .ph:last-child{border-right:none}
+  .ph::before{content:"";position:absolute;top:-5px;left:0;width:9px;height:9px;background:var(--amber);border-radius:50%}
+  .ph .q{font-family:var(--mono);color:var(--amber);font-size:13px;letter-spacing:1px}
+  .ph h3{font-size:1.05rem;margin:8px 0 6px}
+  .ph p{color:var(--muted);font-size:14px}
+
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--go);border:1px solid var(--go-dim);border-radius:30px;padding:5px 13px;margin-bottom:22px}
+  .pull{font-family:var(--display);font-weight:700;font-size:clamp(1.6rem,3.4vw,2.6rem);line-height:1.15;letter-spacing:-.01em;max-width:20ch}
+  .foot{font-size:12px;color:var(--muted-2);margin-top:34px;line-height:1.7;font-family:var(--mono)}
+  .foot a{color:var(--muted)}
+
+  /* hero specifics */
+  #hero{padding-top:0;justify-content:center}
+  #hero .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:4px;color:var(--muted);text-transform:uppercase}
+  #hero h1{margin:24px 0 0}
+  #hero .sub{margin-top:30px}
+  #hero .meta{display:flex;gap:30px;margin-top:54px;flex-wrap:wrap;font-family:var(--mono);font-size:12.5px;color:var(--muted-2);letter-spacing:1px}
+  #hero .meta b{color:var(--amber)}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+  ul.clean{list-style:none;margin-top:24px;display:flex;flex-direction:column;gap:13px}
+  ul.clean li{padding-left:26px;position:relative;color:var(--muted);max-width:52ch}
+  ul.clean li::before{content:"→";position:absolute;left:0;color:var(--amber)}
+  ul.clean li b{color:var(--text);font-weight:600}
+
+  @media(max-width:900px){
+    .g3,.g4,.two,.tam,.timeline{grid-template-columns:1fr}
+    .g2{grid-template-columns:1fr}
+    .led{gap:24px;padding:22px}
+    section{padding:80px 6vw 80px calc(64px + 6vw)}
+    .rail .lv{display:none}
+  }
+  @media print{
+    .rail{display:none}
+    section{min-height:auto;page-break-after:always;border:none;padding:40px}
+    body::before,body::after{display:none}
+    .reveal{opacity:1;transform:none}
+    body{background:#fff;color:#111}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- RAIL -->
+  <nav class="rail">
+    <div class="mark">PARKEASE</div>
+    <div class="dots">
+      <a href="#hero" class="on"></a><a href="#problem"></a><a href="#solution"></a>
+      <a href="#how"></a><a href="#product"></a><a href="#why"></a><a href="#sensing"></a>
+      <a href="#flagship"></a><a href="#market"></a><a href="#compete"></a>
+      <a href="#gtm"></a><a href="#opex"></a><a href="#launch"></a><a href="#ask"></a>
+    </div>
+    <div class="lv">B6 ↑ B1</div>
+  </nav>
+
+  <!-- 1 HERO -->
+  <section id="hero">
+    <div class="reveal in">
+      <div class="eyebrow">Smart Parking · Built for India</div>
+      <h1>We don't reserve<br/>slots. We <span class="amber">orchestrate<br/>floors &amp; zones.</span></h1>
+      <p class="lead sub">ParkEase is an AI-powered Floor &amp; Zone Guidance System for Indian corporate basements — guiding every driver to a level and a zone, and letting them park anywhere inside it. No enforcement. No app. No congestion.</p>
+    </div>
+    <div class="reveal d2 in" style="margin-top:46px">
+      <div class="led">
+        <div class="cell"><span class="cap">FLOOR</span><span class="val">B2</span></div>
+        <div class="div"></div>
+        <div class="cell"><span class="cap">ZONE</span><span class="val">C</span></div>
+        <div class="div"></div>
+        <div class="cell"><span class="cap">PROCEED</span><span class="arrow">↘</span></div>
+      </div>
+    </div>
+    <div class="meta reveal d3 in">
+      <span>EDGE-FIRST · <b>WORKS OFFLINE</b></span>
+      <span>CAMERA-FIRST · <b>mmWAVE FOR BLIND SPOTS</b></span>
+      <span>LIGHTHOUSE: <b>SAS iTOWER, HYDERABAD</b></span>
+    </div>
+  </section>
+
+  <!-- 2 PROBLEM -->
+  <section id="problem">
+    <div class="num">01 / 13</div>
+    <div class="kicker reveal">The Problem</div>
+    <h2 class="reveal d1">Indian commercial parking runs on chaos — and slot-level systems make it worse.</h2>
+    <div class="grid g4">
+      <div class="card reveal d1"><div class="ic">01</div><h3>Morning loop</h3><p>Everyone arrives 8–9:30 AM. Gates back up, cars circle blind, lanes double-park.</p></div>
+      <div class="card reveal d2"><div class="ic">02</div><h3>Slots don't work</h3><p>You cannot make an Indian driver park in "Slot 143." Enforcement fails, so the data goes stale instantly.</p></div>
+      <div class="card reveal d3"><div class="ic">03</div><h3>Blind managers</h3><p>No live view of utilisation, peaks, or which user class is saturating which level.</p></div>
+      <div class="card reveal d4"><div class="ic">04</div><h3>No signal underground</h3><p>Lower basements have no cellular. Cloud- or phone-dependent systems fail exactly where it matters.</p></div>
+    </div>
+  </section>
+
+  <!-- 3 SOLUTION -->
+  <section id="solution">
+    <div class="num">02 / 13</div>
+    <div class="two">
+      <div>
+        <div class="kicker reveal">The Solution</div>
+        <h2 class="reveal d1">One good decision at the entrance — and we stick with it.</h2>
+        <ul class="clean">
+          <li class="reveal d1">The entrance camera reads the <b>number plate</b>.</li>
+          <li class="reveal d2">The on-site engine picks the best <b>floor + zone</b> from live occupancy.</li>
+          <li class="reveal d3">A <b>display + printed ticket</b> show it. A QR opens an optional map.</li>
+          <li class="reveal d4">The driver parks in <b>any free slot</b> inside that zone.</li>
+          <li class="reveal d5"><b>No re-routing. No app. No enforcement.</b></li>
+        </ul>
+      </div>
+      <div class="reveal d2">
+        <div class="pull"><span class="amber">Zones, not slots.</span> Memorable, human, and impossible to break.</div>
+        <p class="body" style="margin-top:22px">Computer vision counts cars per zone so the next decision stays accurate. The cloud is for analytics only — it can fail and the lot keeps running.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 HOW IT WORKS -->
+  <section id="how">
+    <div class="num">03 / 13</div>
+    <div class="kicker reveal">How ParkEase Works</div>
+    <h2 class="reveal d1">Plate in. Floor &amp; zone out. Seven steps, zero friction.</h2>
+    <div class="flow">
+      <div class="step reveal d1"><div class="n">1</div><div><h3>Vehicle arrives at the entrance</h3></div></div>
+      <div class="step reveal d1"><div class="n">2</div><div><h3>AI reads the plate &amp; reads occupancy across all floors</h3></div></div>
+      <div class="step reveal d2"><div class="n">3</div><div><h3>The allocation engine selects the best floor and zone</h3></div></div>
+      <div class="step reveal d2"><div class="n">4</div><div><h3>Entrance display + ticket print the assignment</h3><p>FLOOR&nbsp;B2 · ZONE&nbsp;C · timestamp · vehicle no · optional QR</p></div></div>
+      <div class="step reveal d3"><div class="n">5</div><div><h3>Driver proceeds and parks in any open slot in the zone</h3></div></div>
+      <div class="step reveal d3"><div class="n">6</div><div><h3>Computer vision continuously updates zone occupancy</h3></div></div>
+      <div class="step reveal d4"><div class="n">7</div><div><h3>Facility managers get analytics &amp; reports via the cloud dashboard</h3></div></div>
+    </div>
+  </section>
+
+  <!-- 5 PRODUCT DETAILS -->
+  <section id="product">
+    <div class="num">04 / 13</div>
+    <div class="kicker reveal">Product Details</div>
+    <h2 class="reveal d1">Three layers. Only one of them needs the internet.</h2>
+    <div class="grid g3">
+      <div class="card reveal d1"><div class="ic">GATE LAYER</div><h3>Ground level</h3><p>LPR camera, entrance display, ticket printer, QR generator. Sits where signal is good and renders the decision.</p></div>
+      <div class="card reveal d2"><div class="ic">EDGE LAYER</div><h3>On-premise · offline</h3><p>CV occupancy, mmWave radar ingestion, the allocation algorithm, hold management, signage. <span class="hl">Internet drops, parking continues.</span></p></div>
+      <div class="card reveal d3"><div class="ic">CLOUD LAYER</div><h3>Analytics only</h3><p>Dashboards, reports, history, multi-site analytics. Never on the live loop — its failure cannot stop parking.</p></div>
+    </div>
+    <p class="foot reveal d3">CV answers exactly one question: "How many cars are in each zone?" — no tracking, no trajectories, no lane-speed, no re-routing.</p>
+  </section>
+
+  <!-- 6 WHY US -->
+  <section id="why">
+    <div class="num">05 / 13</div>
+    <div class="kicker reveal">Why Choose Us · Our Moat</div>
+    <h2 class="reveal d1">Everyone counts cars. We're built for how Indians actually park.</h2>
+    <div class="grid g3">
+      <div class="card good reveal d1"><h3>Zone, not slot</h3><p>The behavioural insight no slot-booking competitor can copy without rebuilding their whole model.</p></div>
+      <div class="card good reveal d1"><h3>Camera-first economics</h3><p>One camera covers a whole zone — ~10–15× fewer devices than per-slot sensors. Cheap to install and maintain.</p></div>
+      <div class="card good reveal d2"><h3>Offline-first</h3><p>The entire live loop runs on-premise. Designed for dead-zone basements where cloud systems break.</p></div>
+      <div class="card good reveal d2"><h3>No app, no friction</h3><p>Ticket + display. Nothing to download — the single biggest adoption killer, removed.</p></div>
+      <div class="card good reveal d3"><h3>Graceful degradation</h3><p>Worst case, we're still a live occupancy + analytics board — i.e. the competitor's best case.</p></div>
+      <div class="card good reveal d3"><h3>Flow, not reservation</h3><p>We optimise traffic distribution across the property, not bookings — the genuinely hard, defensible problem.</p></div>
+    </div>
+  </section>
+
+  <!-- 7 SENSING -->
+  <section id="sensing">
+    <div class="num">06 / 13</div>
+    <div class="kicker reveal">Sensing · Why mmWave Radar</div>
+    <h2 class="reveal d1">Cameras for zones. mmWave radar for the blind spots cameras can't see.</h2>
+    <div class="grid g4" style="margin-top:30px">
+      <div class="stat reveal d1"><div class="big">99%</div><div class="lab">detection fidelity — even in total darkness, dust, or mud</div></div>
+      <div class="stat reveal d2"><div class="big">180°</div><div class="lab">field of view — one module monitors multiple bays</div></div>
+      <div class="stat reveal d3"><div class="big">EV-ready</div><div class="lab">works where magnetometers drop to ~60% on EV bodies</div></div>
+      <div class="stat reveal d4"><div class="big">Lowest</div><div class="lab">lifetime OPEX — hidden, tamper-proof, no cleaning</div></div>
+    </div>
+    <img class="sensor-img reveal d2" src="assets/ground-sensor-comparison.png" alt="Choosing the ultimate ground sensor for closed environments: mmWave radar beats magnetometer, ultrasonic, infrared and ToF on detection fidelity, field of view, EV-readiness and lifetime operating cost." />
+  </section>
+
+  <!-- 8 FLAGSHIP -->
+  <section id="flagship">
+    <div class="num">07 / 13</div>
+    <span class="tag reveal">Lighthouse Property</span>
+    <div class="kicker reveal">SAS iTower, Hyderabad</div>
+    <h2 class="reveal d1">A simple occupancy board is not enough here.</h2>
+    <div class="stats">
+      <div class="stat reveal d1"><div class="big">4.5M</div><div class="lab">sq ft · tallest business tower in Hyderabad (37 floors)</div></div>
+      <div class="stat reveal d2"><div class="big">6</div><div class="lab">basement parking levels</div></div>
+      <div class="stat reveal d3"><div class="big">4</div><div class="lab">user classes — offices · mall · multiplex · 5-star hotel</div></div>
+      <div class="stat reveal d4"><div class="big">1000s</div><div class="lab">vehicles per day, with different dwell &amp; peak patterns</div></div>
+    </div>
+    <p class="lead reveal d3">So we add <span class="amber">class-aware orchestration</span>: short-stay mall &amp; hotel visitors to upper basements near the lobbies; long-dwell office tenants to lower levels; the floor→class map shifts by time of day — office surge in the morning, retail surge in the evening. We don't just count cars; we choreograph a mega-property.</p>
+  </section>
+
+  <!-- 9 MARKET -->
+  <section id="market">
+    <div class="num">08 / 13</div>
+    <div class="kicker reveal">Market Opportunity · TAM / SAM / SOM</div>
+    <h2 class="reveal d1">A real, fast-growing market — and we enter at its most underserved edge.</h2>
+    <div class="tam">
+      <div class="rings reveal d1">
+        <div class="ring r1">TAM</div>
+        <div class="ring r2">SAM</div>
+        <div class="ring r3">SOM</div>
+      </div>
+      <div>
+        <div class="it reveal d1"><b>TAM · ~$0.9B by 2033</b><span>India smart-parking systems market — ~$289M (2024) → ~$883M (2033), 13.2% CAGR.</span></div>
+        <div class="it reveal d2"><b>SAM · Grade-A mixed-use &amp; corporate basements</b><span>Organised commercial real estate in the top 6 metros — the segment with budget, density, and a facility-management buyer.</span></div>
+        <div class="it reveal d3"><b>SOM · Hyderabad-first, FM-led</b><span>Lighthouse at SAS iTower → tech-park &amp; mall clusters in Hyderabad, then Bengaluru &amp; Pune via FM channels.</span></div>
+      </div>
+    </div>
+    <p class="foot reveal d3">Market size: IMARC Group. SAM/SOM are illustrative and to be validated bottom-up (count of Grade-A complexes × annual contract value).</p>
+  </section>
+
+  <!-- 10 COMPETITION -->
+  <section id="compete">
+    <div class="num">09 / 13</div>
+    <div class="kicker reveal">Competition &amp; How We Win</div>
+    <h2 class="reveal d1">The incumbents reserve slots or sell consumer apps. Neither fits the basement.</h2>
+    <table class="cmp reveal d1">
+      <thead><tr><th>Player</th><th>Model</th><th>Zone-based</th><th>Offline-first</th><th>No-app</th><th>Camera economics</th></tr></thead>
+      <tbody>
+        <tr><td>Park+</td><td>Consumer app · FASTag ($51.8M raised, ~$160M val.)</td><td class="x">—</td><td class="x">—</td><td class="x">—</td><td class="x">—</td></tr>
+        <tr><td>Get My Parking</td><td>B2B parking infra/software ($9M ARR '24)</td><td class="x">—</td><td class="x">partial</td><td class="x">—</td><td class="x">—</td></tr>
+        <tr><td>Zoho IoT</td><td>Slot occupancy + LPR + payments</td><td class="x">—</td><td class="x">—</td><td class="x">app/board</td><td class="chk">✓</td></tr>
+        <tr class="us"><td>ParkEase</td><td>Floor &amp; zone guidance · edge-first</td><td class="chk">✓</td><td class="chk">✓</td><td class="chk">✓</td><td class="chk">✓</td></tr>
+      </tbody>
+    </table>
+    <p class="lead reveal d2">Our cover: we don't compete on bookings or payments. We own the one problem they structurally can't — <span class="amber">distributing real traffic through a connectivity-dead, enforcement-free Indian basement.</span></p>
+  </section>
+
+  <!-- 11 GTM -->
+  <section id="gtm">
+    <div class="num">10 / 13</div>
+    <div class="kicker reveal">Go-To-Market</div>
+    <h2 class="reveal d1">Land a lighthouse, sell through facility management, expand by cluster.</h2>
+    <div class="grid g3">
+      <div class="card reveal d1"><div class="ic">SELL</div><h3>Facility managers &amp; developers</h3><p>The buyer owns peak-hour throughput and congestion complaints. ROI is operational, not consumer.</p></div>
+      <div class="card reveal d2"><div class="ic">LAND</div><h3>Hyderabad mixed-use</h3><p>SAS iTower as the reference site, then tech-park &amp; mall clusters where one win seeds the next.</p></div>
+      <div class="card reveal d3"><div class="ic">EXPAND</div><h3>FM channel (CBRE / JLL)</h3><p>Property-management firms run hundreds of sites — one signed partner is a portfolio, not a single lot.</p></div>
+    </div>
+  </section>
+
+  <!-- 12 OPEX -->
+  <section id="opex">
+    <div class="num">11 / 13</div>
+    <div class="kicker reveal">Operating Economics</div>
+    <h2 class="reveal d1">Camera-first keeps both capex and OPEX structurally low.</h2>
+    <div class="grid g4">
+      <div class="card reveal d1"><div class="ic">CAPEX / SITE</div><h3>Hardware</h3><p>LPR + zone cameras, edge box, displays, ticket printer, mmWave only for blind spots.</p></div>
+      <div class="card reveal d2"><div class="ic">INSTALL</div><h3>One-time</h3><p>Per-site survey, zone mapping, camera calibration, travel-time tuning.</p></div>
+      <div class="card reveal d3"><div class="ic">RECURRING</div><h3>SaaS / site / month</h3><p>Cloud analytics + support. The recurring line that compounds across the FM portfolio.</p></div>
+      <div class="card reveal d4"><div class="ic">OPEX EDGE</div><h3>Low maintenance</h3><p>Few devices, hidden radar, no battery armies under every slot. Cleaning &amp; swaps minimised.</p></div>
+    </div>
+    <p class="foot reveal d3">Cost lines are structural; exact figures to be finalised with the chosen hardware BOM (sensor/camera selection in progress).</p>
+  </section>
+
+  <!-- 13 LAUNCH -->
+  <section id="launch">
+    <div class="num">12 / 13</div>
+    <div class="kicker reveal">Launch Plan</div>
+    <h2 class="reveal d1">From one basement to a portfolio.</h2>
+    <div class="timeline">
+      <div class="ph reveal d1"><div class="q">PHASE 1</div><h3>Pilot</h3><p>Single corporate basement. Prove allocation, occupancy accuracy &amp; offline operation.</p></div>
+      <div class="ph reveal d2"><div class="q">PHASE 2</div><h3>Lighthouse</h3><p>SAS iTower mixed-use deployment. Class-aware orchestration live across 6 levels.</p></div>
+      <div class="ph reveal d3"><div class="q">PHASE 3</div><h3>Cluster</h3><p>Hyderabad tech parks &amp; malls. Sign first FM channel partner.</p></div>
+      <div class="ph reveal d4"><div class="q">PHASE 4</div><h3>Scale</h3><p>Bengaluru &amp; Pune via FM portfolios. EV zone module ships.</p></div>
+    </div>
+  </section>
+
+  <!-- 14 ASK -->
+  <section id="ask">
+    <div class="num">13 / 13</div>
+    <div class="kicker reveal">The Ask</div>
+    <h1 class="reveal d1">Let's fix the<br/>Indian basement.</h1>
+    <p class="lead reveal d2">We don't reserve slots. We intelligently distribute vehicles across floors and zones to eliminate congestion and deliver a simple parking experience — built offline-first for the country it's actually for.</p>
+    <div class="reveal d3" style="margin-top:40px">
+      <div class="led">
+        <div class="cell"><span class="cap">STATUS</span><span class="val go" style="color:var(--go);text-shadow:0 0 18px rgba(74,222,128,.55)">READY</span></div>
+        <div class="div"></div>
+        <div class="cell"><span class="cap">NEXT</span><span class="val">PILOT</span></div>
+      </div>
+    </div>
+    <p class="foot reveal d4">ParkEase · AI Floor &amp; Zone Guidance · Hyderabad, India<br/>Sources — Market: <a href="https://www.imarcgroup.com/india-smart-parking-systems-market">IMARC Group</a>. Competitors: <a href="https://inc42.com/buzz/parking-solutions-startup-park-raises-25-mn-to-introduce-car-related-financial-services/">Inc42</a>, <a href="https://getlatka.com/companies/get-my-parking">GetLatka</a>. Property: <a href="https://sasinfra.com/portfolio-item/sas-itower/">SAS Infra</a>.</p>
+  </section>
+
+</div>
+
+<script>
+  // scroll reveal
+  const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in')})},{threshold:.15});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+
+  // rail active dot
+  const links=[...document.querySelectorAll('.rail .dots a')];
+  const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+  const so=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){
+    const i=secs.indexOf(e.target);links.forEach(l=>l.classList.remove('on'));if(links[i])links[i].classList.add('on');
+  }})},{threshold:.5});
+  secs.forEach(s=>s&&so.observe(s));
+
+  // keyboard nav (arrow / space) between sections — handy for live pitching
+  let idx=0;
+  function go(n){idx=Math.max(0,Math.min(secs.length-1,n));secs[idx]&&secs[idx].scrollIntoView({behavior:'smooth'});}
+  addEventListener('keydown',ev=>{
+    if(['ArrowDown','ArrowRight','PageDown',' '].includes(ev.key)){ev.preventDefault();go(idx+1);}
+    if(['ArrowUp','ArrowLeft','PageUp'].includes(ev.key)){ev.preventDefault();go(idx-1);}
+  });
+  so2=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting)idx=secs.indexOf(e.target)})},{threshold:.5});
+  secs.forEach(s=>s&&so2.observe(s));
+</script>
+</body>
+</html>
